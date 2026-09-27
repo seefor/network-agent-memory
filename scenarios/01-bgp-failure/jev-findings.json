@@ -1,0 +1,5 @@
+[
+  {"check_name":"bgp_peer_established","status":"FAIL","severity":"CRITICAL","summary":"BGP peer is Idle; expected Established.","evidence":["evidence://incident-8841/bgp-summary"],"facts":{"peer":"203.0.113.10","peer_state":"Idle"}},
+  {"check_name":"interface_oper_up","status":"FAIL","severity":"CRITICAL","summary":"Interface is down; expected up.","evidence":["evidence://incident-8841/interface-state"],"facts":{"interface":"edge01.iad01:Ethernet1/1","interface_state":"down"}},
+  {"check_name":"bgp_adjacency_health","status":"FAIL","severity":"CRITICAL","summary":"BGP adjacency is unhealthy and the bound interface is operationally down.","evidence":["evidence://incident-8841/bgp-summary","evidence://incident-8841/interface-state"],"facts":{"peer_state":"Idle","interface_state":"down"}}
+]
