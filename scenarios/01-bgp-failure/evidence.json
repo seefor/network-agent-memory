@@ -1,0 +1,8 @@
+{
+  "incident_id": "incident-8841",
+  "collected_at": "2026-09-25T16:42:00Z",
+  "observations": [
+    {"kind":"interface_state","subject":"edge01.iad01:Ethernet1/1","value":"down","observed_at":"2026-09-25T16:41:55Z","source":"cli","collector":"iosxe-interface-state","confidence":"deterministic","evidence_reference":"evidence://incident-8841/interface-state"},
+    {"kind":"bgp_peer_state","subject":"203.0.113.10","value":"Idle","observed_at":"2026-09-25T16:42:00Z","source":"cli","collector":"iosxe-bgp-summary","confidence":"deterministic","evidence_reference":"evidence://incident-8841/bgp-summary"}
+  ]
+}
