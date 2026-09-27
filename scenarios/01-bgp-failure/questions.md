@@ -1,9 +1,10 @@
-# Questions
-1. What did collectors observe?
-2. What did JEV establish?
-3. What does Infrahub know?
-4. What service is related?
-5. Separate OBSERVED, VALIDATED, INFERRED.
-6. What evidence is missing?
-7. What should be collected next?
-8. What must PASS before recovery?
+# BGP failure questions
+
+1. What did the collectors observe?
+2. What does Infrahub know about BGP peer `203.0.113.10`?
+3. Which interface is the peer related to?
+4. Which circuit and service depend on that path?
+5. Which parts of the answer are OBSERVED?
+6. Which parts are INFERRED?
+7. What evidence is still missing?
+8. What should be collected next before taking action?
