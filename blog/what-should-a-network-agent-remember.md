@@ -1,106 +1,98 @@
-# What Should a Network Agent Remember? Evidence, Deterministic Evaluation, and Infrastructure Memory
+# What Should a Network Agent Actually Remember? Building Infrastructure Memory with Infrahub
 
-When people talk about memory for AI agents, the conversation usually gets to vector databases pretty quickly. Store previous conversations, embed documentation, retrieve relevant chunks, and put them back into the prompt. That is useful, but I do not think it solves the harder problem for a network operations agent.
+When people talk about memory for AI agents, the conversation usually gets to vector databases pretty quickly. Store previous conversations, embed documentation, retrieve relevant chunks, and put them back into the prompt.
 
-A network agent needs more than memory. It needs a way to separate what the network actually showed us, what we can prove from that evidence, what we already know about the infrastructure, and what the language model is inferring.
+That is useful, but I do not think it solves the harder memory problem for a network operations agent.
 
-The architecture I am experimenting with now has four different jobs:
+If I ask an agent to troubleshoot a BGP problem today, it can collect evidence, reason through the problem, and give me a useful answer. Then the next investigation starts and we are back to rebuilding context. What device is this? Where is it? What interface does this peer use? Which circuit is attached to that interface? What service depends on the circuit?
+
+A network agent should not have to rediscover the structure of the network every time it starts reasoning.
+
+That is the problem I want to explore with Infrahub.
+
+## Start With a Smaller Architecture
+
+I originally started adding more layers to this experiment: deterministic evaluators, validation objects, additional truth states. All of those ideas have value, but they also hide the first question I actually want to answer.
+
+**What should a network agent remember?**
+
+So I am starting with a much smaller architecture:
 
 ```text
-Collectors -> Evidence -> JEV -> Infrahub -> Agent
-                         |       |
-                    validated   infrastructure
-                     findings      memory
+Network
+   |
+   v
+Collector
+   |
+   v
+Evidence ------+
+               |
+               v
+             Agent <------MCP------> Infrahub
+                                       |
+                                       v
+                              Infrastructure Memory
 ```
 
-Collectors observe the network. JEV evaluates evidence deterministically. Infrahub provides structured infrastructure memory and relationships. The agent reasons across all of it.
+The collector tells the agent what the network is doing now.
 
-I do not want the LLM doing jobs that deterministic code can do better, and I do not want a source of truth pretending that yesterday's observation is proof of what the network is doing right now.
+Infrahub tells the agent what the infrastructure is.
 
-## The Problem Is Bigger Than Agent Amnesia
+The agent reasons across both.
 
-Imagine an agent investigating a BGP incident. It connects to a router, collects BGP state, checks the interface, and maybe queries telemetry or another API. It sees:
+That separation is the experiment.
+
+## Evidence Is Not Memory
+
+This is the distinction I think matters most.
+
+Suppose I collect this from a router:
 
 ```text
 Ethernet1/1 operational state: DOWN
 BGP peer 203.0.113.10: IDLE
 ```
 
-A language model knows enough about BGP to tell you that an interface problem could explain why the session is down. But there are several different statements hiding inside that answer.
+Those are observations. They are evidence from a particular point in time.
 
-The collector **observed** that Ethernet1/1 was down. The collector **observed** that the BGP peer was Idle. A deterministic evaluator may be able to **validate** that known invariants have been violated. The infrastructure graph may tell us that the peer uses Ethernet1/1, the interface carries TRANSIT-A, and INTERNET-EGRESS depends on that circuit. The LLM can then **infer** the operational significance.
+I do not need to turn every line of `show ip bgp summary`, every interface counter, every syslog message, or every telemetry sample into permanent agent memory. Most of that information is useful because of when it was collected.
 
-Those are not interchangeable.
+What I want the agent to remember is the durable context around that evidence.
 
-## Three Levels of Truth
-
-I have started thinking about the output in three categories:
+For example:
 
 ```text
-OBSERVED
-A collector directly measured it.
-
-VALIDATED
-A deterministic evaluator tested the evidence against a rule or invariant.
-
-INFERRED
-The agent reasoned from evidence, validated findings, and infrastructure context.
+203.0.113.10
+     |
+     v
+Ethernet1/1
+     |
+     v
+TRANSIT-A
+     |
+     v
+INTERNET-EGRESS
 ```
 
-Suppose the agent says the BGP session is down because Ethernet1/1 failed, affecting the INTERNET-EGRESS service. I want to be able to unpack that sentence.
+Now the live evidence means something.
 
-```text
-OBSERVED:
-  Ethernet1/1 = DOWN
-  BGP peer 203.0.113.10 = IDLE
+The agent does not just know that a BGP peer is Idle. It can discover which interface the peer is attached to, which circuit uses that interface, and which service depends on that circuit.
 
-VALIDATED:
-  Peer is not Established.
-  Interface is operationally down.
-  BGP adjacency health invariant failed.
+That is the kind of memory I am interested in.
 
-INFRASTRUCTURE MEMORY:
-  203.0.113.10 -> Ethernet1/1
-  Ethernet1/1 -> TRANSIT-A
-  TRANSIT-A -> INTERNET-EGRESS
+## Why a Graph Makes Sense
 
-INFERRED:
-  The interface failure is the strongest supported explanation
-  for the BGP outage, and INTERNET-EGRESS is in the affected path.
-```
+A lot of agent-memory examples start with semantic search. That makes sense for unstructured information such as runbooks, vendor documentation, incident notes, and postmortems.
 
-Now I know what came from the network, what was deterministically tested, what came from the source of truth, and what came from the model.
+Infrastructure is different.
 
-## Where JEV Fits
+The relationships themselves matter.
 
-JEV is not the agent's memory and it is not the source of truth. It is the deterministic evaluation layer. Its job is to take evidence and answer questions that should not require an LLM.
+A device belongs to a site. An interface belongs to a device. A BGP peer terminates on an interface. A circuit uses an interface. A service depends on a circuit.
 
-```text
-Invariant:
-BGP peer state must be Established.
+Those are not paragraphs I want an embedding model to rediscover. They are relationships I want represented directly.
 
-Observed:
-203.0.113.10 = Idle
-
-Result:
-FAIL
-```
-
-The rule I want throughout this project is simple:
-
-> **The LLM should not re-decide something deterministic evaluation has already proven.**
-
-The agent can question freshness, scope, or missing evidence. It can reason about dependencies and likely causes. It can identify what should happen next. But if JEV proves that an invariant was violated, the model does not get a second vote.
-
-## Evidence Is Still Not Memory
-
-Adding JEV does not change another distinction: raw evidence should not automatically become agent memory.
-
-CLI output, telemetry samples, syslog, packet captures, and API responses are evidence. They may be large, noisy, and highly time-sensitive. What I want to preserve as infrastructure memory is durable structured context: sites, devices, interfaces, BGP peers, circuits, services, dependencies, intent, selected observations, changes, and validation history.
-
-That is why Infrahub is interesting to me. Its schema is user-defined, so I can model the objects and relationships the agent actually needs instead of forcing the experiment into a fixed model.
-
-For the first lab:
+For the first lab, the graph is intentionally small:
 
 ```text
 IAD-01
@@ -115,155 +107,238 @@ Ethernet1/1
                      INTERNET-EGRESS
 ```
 
-The graph is not telling me that Ethernet1/1 is currently down. The collector tells me that. JEV validates the operational invariants. The graph tells me what Ethernet1/1 means to this network.
+That is enough to start asking much better questions.
 
-## The Questions Change
+## The Questions I Want the Agent to Answer
 
-I am less interested in asking an agent what BGP Idle means. Any decent model can answer that from general networking knowledge.
+I am not particularly interested in asking the agent, "What does BGP Idle mean?"
 
-I am more interested in what we actually observed, which observations have been deterministically validated, what the infrastructure knows about the affected objects, what depends on them, which parts of the diagnosis are proven versus inferred, what evidence is still missing, and what invariant needs to pass before we declare recovery.
+A modern language model already knows enough general networking information to answer that.
 
-Those questions force the agent to reason from evidence instead of giving me a plausible networking answer.
+I want to ask questions that require knowledge of **this network**.
 
-## Infrahub as Infrastructure Memory
+What do we know about peer `203.0.113.10`?
 
-Infrahub gives me the persistent structural side of the problem. The agent can query devices, interfaces, peers, circuits, services, and relationships through a graph instead of relying on whatever happens to fit into its prompt.
+Which interface is it associated with?
 
-Many useful NetOps questions are graph questions:
+What circuit uses that interface?
 
-```text
-Ethernet1/1
-     |
-     +--> BGP Peer
-     |
-     +--> Circuit
-             |
-             +--> Service
-```
+What service depends on that circuit?
 
-If an interface fails, I want to know what depends on it. I am not asking a vector database to find a paragraph that happens to mention the circuit. The relationship itself is data.
+Given the live evidence, what might be affected?
 
-Infrahub's MCP server makes this useful because the agent can discover the schema and query the infrastructure graph through a standard tool interface. The model gets infrastructure context and deterministic findings, but those systems remain independent of the model.
+What part of that answer came directly from the network, and what part did the agent infer?
 
-## Provenance Matters More Now
+What evidence is still missing before we take action?
 
-An observation should carry where it came from and when it was collected:
+Those questions require more than general networking knowledge. They require infrastructure context.
 
-```yaml
-subject: edge01.iad01:Ethernet1/1
-state: down
-observed_at: 2026-09-25T16:41:55Z
-source: cli
-collector: iosxe-interface-state
-confidence: deterministic
-evidence_reference: evidence://incident-8841/interface-state
-```
+## OBSERVED Versus INFERRED
 
-A JEV finding should point back to the evidence it evaluated. That lets the agent explain the chain behind its conclusion rather than just attach a confidence score to a paragraph.
+For this first version, I am keeping the reasoning model deliberately simple.
 
-## Freshness Is Part of Correctness
-
-Memory is durable. Operational state often is not. If Infrahub contains an observation from yesterday saying Ethernet1/1 was up, that is historical context, not proof that it is up now. A JEV result is only as current as the evidence it evaluated.
-
-Before saying the network recovered, I want new evidence:
+There are two categories I care about.
 
 ```text
-Execute remediation
-        |
-        v
-Collect fresh evidence
-        |
-        v
-Run JEV validation
-        |
-        +--> FAIL -> keep investigating
-        |
-        +--> PASS
-               |
-               v
-        update durable history
+OBSERVED
+A collector directly measured it.
+
+INFERRED
+The agent reasoned from evidence and infrastructure context.
 ```
 
-The LLM should not declare victory because a change command returned successfully. Execution success and network recovery are different things.
-
-## The Write Path Needs the Same Discipline
-
-The Infrahub MCP workflow gives us another useful control point. Agent writes occur on an isolated session branch and can be opened as a Proposed Change for review. They do not silently become default-branch truth.
-
-That gives us a larger loop:
+If the collector says:
 
 ```text
-Observe
-   |
-Evidence
-   |
-JEV
-   |
-Validated Findings
-   |
-Infrahub Context
-   |
-Agent Reasoning
-   |
-Proposed Change
-   |
-Validation
-   |
-Human Approval
-   |
-Execution
-   |
-Observe Again
-   |
-JEV
+Ethernet1/1 = DOWN
+BGP peer 203.0.113.10 = IDLE
 ```
 
-This is much more interesting to me than giving an LLM SSH credentials and calling it an autonomous network engineer.
+those are OBSERVED facts.
 
-Collectors establish evidence. JEV establishes deterministic findings. Infrahub establishes infrastructure context. The agent connects those facts, identifies gaps, and proposes what should happen next. Executors make approved changes. Validators prove whether those changes actually worked.
+If Infrahub tells us:
 
-## The First Lab: BGP Failure
+```text
+203.0.113.10 -> Ethernet1/1
+Ethernet1/1 -> TRANSIT-A
+TRANSIT-A -> INTERNET-EGRESS
+```
 
-The companion repo starts with one scenario:
+that is infrastructure context.
+
+The agent may then conclude:
+
+```text
+The failed interface is a plausible explanation for the BGP outage,
+and INTERNET-EGRESS is in the affected dependency path.
+```
+
+That is INFERRED.
+
+The distinction matters because I do not want a model turning a reasonable conclusion into something that sounds like the network directly reported it.
+
+## Why Infrahub
+
+Infrahub is interesting here because I can define the infrastructure model I want rather than adapting the experiment to a fixed schema.
+
+For this lab I only need a handful of objects:
+
+```text
+Site
+Device
+Interface
+BGP Peer
+Circuit
+Service
+Observation
+```
+
+And a handful of relationships:
+
+```text
+Device -> Site
+Interface -> Device
+BGP Peer -> Interface
+Circuit -> Interface
+Service -> Circuit
+```
+
+That is enough to start building infrastructure memory without trying to model the entire network on day one.
+
+The other piece I care about is MCP. Instead of writing a pile of custom functions just so the agent can interrogate the graph, the Infrahub MCP server gives the agent a standard tool interface for discovering and querying that infrastructure context.
+
+That keeps the agent side surprisingly small.
+
+## Freshness Still Matters
+
+There is an important trap when we start calling something "memory."
+
+Memory is durable. Operational state often is not.
+
+If an observation stored yesterday says Ethernet1/1 was up, that is useful history. It is not proof that Ethernet1/1 is up right now.
+
+For current operational questions, the agent should prefer fresh collector evidence.
+
+That gives us another useful boundary:
+
+```text
+Infrahub
+  |
+  +--> What exists?
+  +--> How is it related?
+  +--> What is the intended structure?
+  +--> What historical context do we have?
+
+Collector
+  |
+  +--> What did the network show us now?
+```
+
+The agent combines the two, but it should not confuse them.
+
+## The First BGP Lab
+
+The repository starts with one simple failure.
+
+The infrastructure model says:
 
 ```text
 Site: IAD-01
 Device: edge01.iad01
 Interface: Ethernet1/1
-BGP Peer: 203.0.113.10 / AS64520
+BGP Peer: 203.0.113.10
+Remote ASN: 64520
 Circuit: TRANSIT-A
 Service: INTERNET-EGRESS
 ```
 
-The collector evidence is Ethernet1/1 down and peer 203.0.113.10 Idle. JEV evaluates that evidence against deterministic checks. Infrahub supplies topology and service relationships.
+The collector evidence says:
 
-Then the agent has to answer what the collectors observed, what JEV deterministically established, what Infrahub knows about the affected objects, which service depends on the failed path, which parts of the diagnosis are observed/validated/inferred, what evidence is missing, what should be collected next, and what invariants must pass before the incident is considered resolved.
+```text
+Ethernet1/1 = DOWN
+203.0.113.10 = IDLE
+```
 
-That is enough to test whether the architecture is doing what I want.
+The agent gets the evidence directly and queries Infrahub for the rest.
+
+Then I want it to answer:
+
+1. What did the collector actually observe?
+2. What does Infrahub know about this peer?
+3. Which interface is involved?
+4. What circuit and service depend on that path?
+5. Which statements are observed facts?
+6. Which statements are agent inference?
+7. What evidence is missing?
+8. What should we collect next before taking action?
+
+This is deliberately not an autonomous remediation demo.
+
+I want to get the evidence and memory boundary right before adding execution.
+
+## What I Am Not Putting in Infrahub
+
+I also do not want Infrahub to become a dumping ground for everything the agent ever sees.
+
+I would not put every raw CLI response into the graph. I would not dump high-volume telemetry into it. I would not store the model's chain of thought. I would not treat every temporary observation as durable truth.
+
+Different information has different jobs.
+
+Raw operational evidence can live with the collection or telemetry system. Runbooks and vendor documentation may eventually make more sense in a retrieval system. Working conversation state belongs in the agent runtime.
+
+Infrahub's job in this architecture is narrower and more useful: **structured infrastructure memory**.
+
+## Where Deterministic Evaluation Comes In Later
+
+There is another problem waiting right behind this one.
+
+Some questions should not be answered by an LLM at all.
+
+If a BGP peer must be Established and the collected state is Idle, code can evaluate that condition deterministically. If six BGP flaps per minute violates an operational invariant of two flaps per five minutes, I do not need a language model to decide whether the threshold was exceeded.
+
+That deserves its own layer and, more importantly, its own experiment.
+
+I do not want to hide the infrastructure-memory lesson underneath it.
+
+So the progression I am working toward looks more like this:
+
+```text
+1. Infrastructure Memory
+        |
+        v
+2. Deterministic Evaluation
+        |
+        v
+3. Temporal Reasoning
+        |
+        v
+4. Safe Execution
+```
+
+First give the agent memory.
+
+Then stop asking the LLM questions code can answer.
+
+Then use history to reason about what changed.
+
+Then worry about letting the agent propose or execute changes.
+
+Each step solves a different problem.
 
 ## Where This Goes Next
 
-The next interesting step is not adding more chat memory. It is temporal reasoning.
+The interesting end state is still larger than memory.
 
-I want the agent to eventually answer: What changed since this network was healthy? Which of those changes intersect the current failure domain? Which hypothesis can we prove or disprove deterministically? What is the smallest safe remediation we can propose? What evidence proves that remediation restored the intended state?
+Eventually I want an agent that can collect current evidence, understand the infrastructure around the failure, compare current state with previous known-good state, determine which conclusions can be proven deterministically, propose the smallest reasonable change, and then collect new evidence to verify the result.
 
-That gives me a loop that looks more like engineering:
+But I do not think we need to build all of that at once to learn something useful.
 
-```text
-Observe
-  -> Evidence
-  -> Evaluate
-  -> Remember
-  -> Reason
-  -> Validate
-  -> Propose
-  -> Approve
-  -> Execute
-  -> Observe again
-```
+The first question is enough:
 
-There is still an LLM in the middle of this system. I am not trying to remove it. I am trying to make sure it is doing the part of the job where an LLM actually helps.
+> **What should a network agent actually remember?**
 
-The goal is not an agent that sounds like a network engineer. The goal is an agent that can tell me what it observed, what was proven, what it knows about the infrastructure, what it inferred from those facts, and what evidence would prove whether it was right.
+My answer right now is not "everything."
 
-That is a much higher bar, and I think it is a much more useful one.
+It should remember the durable structure and context that makes fresh evidence meaningful.
+
+That is what I want to test with Infrahub.
