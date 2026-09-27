@@ -1,11 +1,12 @@
 [project]
-name="network-agent-memory"
-version="0.2.0"
-requires-python=">=3.11"
-dependencies=["pydantic-ai[mcp]>=1.0.0","python-dotenv>=1.0.0"]
-[project.optional-dependencies]
-dev=["pytest>=8"]
+name = "network-agent-memory"
+version = "0.1.0"
+description = "Infrastructure memory for an AI network engineer using Infrahub, MCP, and Pydantic AI"
+requires-python = ">=3.11"
+dependencies = [
+  "pydantic-ai[mcp]>=1.0.0",
+  "python-dotenv>=1.0.0",
+]
+
 [tool.uv]
-package=false
-[tool.pytest.ini_options]
-pythonpath=["."]
+package = false
