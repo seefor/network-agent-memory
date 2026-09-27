@@ -1,0 +1,54 @@
+# yaml-language-server: $schema=https://schema.infrahub.app/infrahub/schema/latest.json
+---
+version: "1.0"
+nodes:
+  - name: Site
+    namespace: Network
+    human_friendly_id: ["name__value"]
+    attributes: [{name: name, kind: Text, unique: true}]
+  - name: Device
+    namespace: Network
+    human_friendly_id: ["name__value"]
+    attributes: [{name: name, kind: Text, unique: true}]
+    relationships: [{name: site, cardinality: one, peer: NetworkSite, kind: Attribute}]
+  - name: Interface
+    namespace: Network
+    human_friendly_id: ["name__value", "device__name__value"]
+    attributes: [{name: name, kind: Text}]
+    relationships: [{name: device, cardinality: one, peer: NetworkDevice, kind: Attribute}]
+  - name: BGPPeer
+    namespace: Network
+    human_friendly_id: ["address__value"]
+    attributes: [{name: address, kind: Text, unique: true}, {name: remote_as, kind: Number}]
+    relationships: [{name: interface, cardinality: one, peer: NetworkInterface, kind: Attribute}]
+  - name: Circuit
+    namespace: Network
+    human_friendly_id: ["name__value"]
+    attributes: [{name: name, kind: Text, unique: true}]
+    relationships: [{name: interface, cardinality: one, peer: NetworkInterface, kind: Attribute}]
+  - name: Service
+    namespace: Network
+    human_friendly_id: ["name__value"]
+    attributes: [{name: name, kind: Text, unique: true}]
+    relationships: [{name: circuit, cardinality: one, peer: NetworkCircuit, kind: Attribute}]
+  - name: Observation
+    namespace: Network
+    human_friendly_id: ["observation_id__value"]
+    attributes:
+      - {name: observation_id, kind: Text, unique: true}
+      - {name: subject, kind: Text}
+      - {name: state, kind: Text}
+      - {name: observed_at, kind: Text}
+      - {name: source, kind: Text}
+      - {name: collector, kind: Text}
+      - {name: evidence_reference, kind: Text, optional: true}
+  - name: ValidationResult
+    namespace: Network
+    human_friendly_id: ["validation_id__value"]
+    attributes:
+      - {name: validation_id, kind: Text, unique: true}
+      - {name: check_name, kind: Text}
+      - {name: status, kind: Text}
+      - {name: severity, kind: Text}
+      - {name: evaluated_at, kind: Text}
+      - {name: evidence_references, kind: Text}
